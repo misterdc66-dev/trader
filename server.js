@@ -5,8 +5,8 @@
 //   GET /health   -> { ok: true }
 //   GET /stream   -> Server-Sent Events, one message per second
 //   WS  /ws       -> WebSocket, one message per second
-//   GET /ticks    -> JSON { ticks: [oldest..newest, last 120], currentSeq, serverTimeMs }
-//   GET /state    -> JSON { currentSeq, serverTimeMs, lastTick }
+//   GET /ticks    -> JSON { runId, ticks: [oldest..newest, last 120], currentSeq, serverTimeMs }
+//   GET /state    -> JSON { runId, currentSeq, serverTimeMs, lastTick }
 const http = require('http');
 const crypto = require('crypto');
 
@@ -20,6 +20,11 @@ const symbols = [
 ];
 let seq = 0;
 
+// One runId per process start: ticks are identified by (runId, seq), so a
+// seq reset after a restart/redeploy is a new run, never a collision.
+// Timestamps are for freshness checks only, not identity.
+const runId = crypto.randomUUID();
+
 function nextMessage() {
   seq += 1;
   const serverTimeMs = Date.now();
@@ -31,6 +36,7 @@ function nextMessage() {
     type: 'fake_price_tick',
     fake: true,
     label: 'FAKE TEST DATA - NOT REAL MARKET DATA',
+    runId,
     seq,
     serverTimeMs,
     prices: symbols.map((s) => ({ symbol: s.symbol, price: s.price })),
@@ -128,7 +134,7 @@ const server = http.createServer((req, res) => {
       'content-type': 'application/json',
       'access-control-allow-origin': '*',
     });
-    res.end(JSON.stringify({ ticks: tickBuffer, currentSeq: seq, serverTimeMs: Date.now() }));
+    res.end(JSON.stringify({ runId, ticks: tickBuffer, currentSeq: seq, serverTimeMs: Date.now() }));
     return;
   }
   if (req.url === '/state') {
@@ -136,7 +142,7 @@ const server = http.createServer((req, res) => {
       'content-type': 'application/json',
       'access-control-allow-origin': '*',
     });
-    res.end(JSON.stringify({ currentSeq: seq, serverTimeMs: Date.now(), lastTick }));
+    res.end(JSON.stringify({ runId, currentSeq: seq, serverTimeMs: Date.now(), lastTick }));
     return;
   }
   if (req.url === '/stream') {
