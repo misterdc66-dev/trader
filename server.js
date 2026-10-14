@@ -5,6 +5,8 @@
 //   GET /health   -> { ok: true }
 //   GET /stream   -> Server-Sent Events, one message per second
 //   WS  /ws       -> WebSocket, one message per second
+//   GET /ticks    -> JSON { ticks: [oldest..newest, last 120], currentSeq, serverTimeMs }
+//   GET /state    -> JSON { currentSeq, serverTimeMs, lastTick }
 const http = require('http');
 const crypto = require('crypto');
 
@@ -58,8 +60,18 @@ function wsEncode(text) {
 const wsClients = new Set();
 const sseClients = new Set();
 
+// In-memory ring buffer of the last 120 generated ticks (same objects that
+// are broadcast over SSE/WS), so Muse can ingest them over plain HTTPS.
+const TICK_BUFFER_MAX = 120;
+const tickBuffer = [];
+let lastTick = null;
+
 setInterval(() => {
-  const msg = JSON.stringify(nextMessage());
+  const tick = nextMessage();
+  lastTick = tick;
+  tickBuffer.push(tick);
+  if (tickBuffer.length > TICK_BUFFER_MAX) tickBuffer.shift();
+  const msg = JSON.stringify(tick);
   for (const res of sseClients) res.write(`data: ${msg}\n\n`);
   for (const sock of wsClients) {
     try { sock.write(wsEncode(msg)); } catch { wsClients.delete(sock); }
@@ -109,6 +121,22 @@ const server = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true, fake: true }));
+    return;
+  }
+  if (req.url === '/ticks') {
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'access-control-allow-origin': '*',
+    });
+    res.end(JSON.stringify({ ticks: tickBuffer, currentSeq: seq, serverTimeMs: Date.now() }));
+    return;
+  }
+  if (req.url === '/state') {
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'access-control-allow-origin': '*',
+    });
+    res.end(JSON.stringify({ currentSeq: seq, serverTimeMs: Date.now(), lastTick }));
     return;
   }
   if (req.url === '/stream') {
