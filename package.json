@@ -1,0 +1,1 @@
+{"description":"Fake, clearly labeled price feed used only to test whether a Muse dashboard client can hold a secure live connection (SSE/WebSocket) to a Render Web Service. No real market data, no vendor credentials.","engines":{"node":">=20"},"name":"muse-fake-price-test","private":true,"scripts":{"start":"node server.js"},"version":"1.0.0"}
